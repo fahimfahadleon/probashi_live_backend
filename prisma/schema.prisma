@@ -1,0 +1,137 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+model Admin {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id         String   @id @unique
+  name       String
+  profilePic String
+  bio        String?
+  coin       Int      @default(0)
+  diamond    Int      @default(0)
+  level      Int      @default(1)
+  vipStatus  Boolean  @default(false)
+  badge      String?
+  settings   Json?
+  extra      Json?
+  isBlocked  Boolean  @default(false)   // <-- Add this field to track blocked status
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Follower/Following Relations
+  followedBy Follow[] @relation("FollowedBy")
+  following  Follow[] @relation("Following")
+
+  // Friendships (optional, symmetric or request-based)
+  friends    Friendship[] @relation("FriendsOf")
+  friendedBy Friendship[] @relation("FriendedBy")
+  payments  Payment[]
+  paymentHistory  PaymentHistory[] 
+}
+model VIPDiamondPack {
+  id        String    @id @default(cuid())
+  price     Float
+  diamonds  Int
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  payments  Payment[] // 👈 This line establishes the reverse relation
+}
+model Follow {
+  id           String   @id @default(uuid())
+  followerId   String
+  followingId  String
+
+  follower     User     @relation("Following", fields: [followerId], references: [id])
+  following    User     @relation("FollowedBy", fields: [followingId], references: [id])
+
+  createdAt    DateTime @default(now())
+
+  @@unique([followerId, followingId])
+}
+model Friendship {
+  id        String   @id @default(uuid())
+  userId    String
+  friendId  String
+
+  user      User     @relation("FriendsOf", fields: [userId], references: [id])
+  friend    User     @relation("FriendedBy", fields: [friendId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, friendId])
+}
+
+model Payment {
+  id             String           @id @default(cuid())
+  transactionId  String           @unique
+  method         String
+  description    String?
+  userId         String
+  itemId         String
+  status         PaymentStatus    @default(PENDING)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  user           User             @relation(fields: [userId], references: [id])
+  item           VIPDiamondPack   @relation(fields: [itemId], references: [id])
+  history        PaymentHistory[]  
+}
+
+model PaymentHistory {
+  id         String   @id @default(cuid())
+  userId     String
+  paymentId  String   @unique  // 1-to-1 relation requires this to be unique
+  diamonds   Int
+  price      Float
+  type       String
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id])
+  payment    Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+}
+
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  DECLINED
+}
+
+model Announcement {
+  id        String   @id @default(cuid())
+  title     String
+  message   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt 
+}
+
+model Offer {
+  id        String   @id @default(cuid())
+  title     String
+  content   String   // can be diamond count, text, or a URL
+  price     Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
