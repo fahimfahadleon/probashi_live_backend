@@ -12,5 +12,6 @@ import { Module } from '@nestjs/common';
   ],
   providers: [AuthService, JwtStrategy, JwtAdminStrategy],
   controllers: [AuthController],
+  exports: [JwtModule]
 })
 export class AuthModule { }

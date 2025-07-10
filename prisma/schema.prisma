@@ -135,3 +135,63 @@ model Offer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+
+model LiveSession {
+  id             String          @id @default(cuid())
+
+  hosts          LiveUser[]      @relation("LiveSessionHosts")
+  participants   LiveUser[]      @relation("LiveSessionParticipants")
+
+  startedAt      DateTime        @default(now())
+  endedAt        DateTime?
+
+  comments       LiveComment[]
+  gifts          LiveGift[]
+
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model LiveUser {
+  id          String      @id @default(cuid())
+
+  user        User        @relation(fields: [userId], references: [id])
+  userId      String
+
+  session     LiveSession @relation(fields: [sessionId], references: [id])
+  sessionId   String
+
+  isHost      Boolean     @default(false)
+
+  joinedAt    DateTime    @default(now())
+  leftAt      DateTime?
+
+  comments    LiveComment[]
+  giftsSent   LiveGift[]  @relation("GiftsSent")
+  giftsReceived LiveGift[] @relation("GiftsReceived")
+}
+
+model LiveComment {
+  id          String      @id @default(cuid())
+
+  liveUser    LiveUser    @relation(fields: [liveUserId], references: [id])
+  liveUserId  String
+
+  message     String
+  createdAt   DateTime    @default(now())
+}
+
+model LiveGift {
+  id           String      @id @default(cuid())
+
+  fromUser     LiveUser    @relation("GiftsSent", fields: [fromUserId], references: [id])
+  fromUserId   String
+
+  toUser       LiveUser    @relation("GiftsReceived", fields: [toUserId], references: [id])
+  toUserId     String
+
+  giftType     String      // e.g. "rose", "star", etc.
+  diamondCount Int         // diamond amount sent
+  createdAt    DateTime    @default(now())
+}

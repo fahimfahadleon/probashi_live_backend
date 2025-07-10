@@ -14,6 +14,7 @@ import { PaymentModule } from './payment/payment.module';
 import { VipModule } from './vip/vip.module';
 import { AnnouncementModule } from './announcement/announcement.module';
 import { OfferModule } from './offer/offer.module';
+import { UserModuleModule } from './user_module/user_module.module';
 
 @Module({
   imports: [
@@ -28,7 +29,8 @@ import { OfferModule } from './offer/offer.module';
     PaymentModule,
     VipModule,
     AnnouncementModule,
-    OfferModule
+    OfferModule,
+    UserModuleModule
   ],
   controllers: [DashboardController],
 
