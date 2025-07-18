@@ -22,10 +22,12 @@ export class ProfileService {
                 diamond: true,
                 level: true,
                 vipStatus: true,
+                isBlocked: true,
                 badge: true,
                 settings: true,
                 extra: true,
                 createdAt: true,
+                updatedAt: true,
             },
         });
 

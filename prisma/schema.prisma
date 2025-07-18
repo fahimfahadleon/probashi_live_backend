@@ -39,6 +39,7 @@ model User {
   isBlocked  Boolean  @default(false)   // <-- Add this field to track blocked status
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+   liveUsers LiveUser[]
 
   // Follower/Following Relations
   followedBy Follow[] @relation("FollowedBy")
@@ -138,60 +139,79 @@ model Offer {
 
 
 model LiveSession {
-  id             String          @id @default(cuid())
+  id             String        @id @default(cuid())
 
-  hosts          LiveUser[]      @relation("LiveSessionHosts")
-  participants   LiveUser[]      @relation("LiveSessionParticipants")
+  // Two separate relations with aliases
+  hosts          LiveUser[]    @relation("LiveSessionHosts")
+  participants   LiveUser[]    @relation("LiveSessionParticipants")
+  audience       LiveUser[]    @relation("LiveSessionAudience")
 
-  startedAt      DateTime        @default(now())
+  comments       LiveComment[] @relation("SessionComments")
+  gifts          LiveGift[]    @relation("SessionGifts")
+
+  startedAt      DateTime      @default(now())
   endedAt        DateTime?
 
-  comments       LiveComment[]
-  gifts          LiveGift[]
-
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 }
 
 model LiveUser {
-  id          String      @id @default(cuid())
+  id               String        @id @default(cuid())
 
-  user        User        @relation(fields: [userId], references: [id])
-  userId      String
+  user             User          @relation(fields: [userId], references: [id])
+  userId           String
 
-  session     LiveSession @relation(fields: [sessionId], references: [id])
-  sessionId   String
+  // Separate session relations to avoid conflict
+  hostSession       LiveSession? @relation("LiveSessionHosts", fields: [hostSessionId], references: [id])
+  hostSessionId     String?
 
-  isHost      Boolean     @default(false)
+  participantSession LiveSession? @relation("LiveSessionParticipants", fields: [participantSessionId], references: [id])
+  participantSessionId String?
 
-  joinedAt    DateTime    @default(now())
-  leftAt      DateTime?
+  isHost           Boolean       @default(false)
 
-  comments    LiveComment[]
-  giftsSent   LiveGift[]  @relation("GiftsSent")
-  giftsReceived LiveGift[] @relation("GiftsReceived")
+  joinedAt         DateTime      @default(now())
+  leftAt           DateTime?
+
+  comments         LiveComment[]
+  giftsSent        LiveGift[]    @relation("GiftsSent")
+  giftsReceived    LiveGift[]    @relation("GiftsReceived")
+
+  audienceSession   LiveSession? @relation("LiveSessionAudience", fields: [audienceSessionId], references: [id])
+  audienceSessionId String?
+
+  role String @default("participant")
+
 }
 
 model LiveComment {
-  id          String      @id @default(cuid())
+  id           String      @id @default(cuid())
 
-  liveUser    LiveUser    @relation(fields: [liveUserId], references: [id])
-  liveUserId  String
+  liveUser     LiveUser    @relation(fields: [liveUserId], references: [id])
+  liveUserId   String
 
-  message     String
-  createdAt   DateTime    @default(now())
+  session      LiveSession @relation("SessionComments", fields: [sessionId], references: [id])
+  sessionId    String
+
+  message      String
+  createdAt    DateTime    @default(now())
 }
 
 model LiveGift {
-  id           String      @id @default(cuid())
+  id            String      @id @default(cuid())
 
-  fromUser     LiveUser    @relation("GiftsSent", fields: [fromUserId], references: [id])
-  fromUserId   String
+  fromUser      LiveUser    @relation("GiftsSent", fields: [fromUserId], references: [id])
+  fromUserId    String
 
-  toUser       LiveUser    @relation("GiftsReceived", fields: [toUserId], references: [id])
-  toUserId     String
+  toUser        LiveUser    @relation("GiftsReceived", fields: [toUserId], references: [id])
+  toUserId      String
 
-  giftType     String      // e.g. "rose", "star", etc.
-  diamondCount Int         // diamond amount sent
-  createdAt    DateTime    @default(now())
+  session       LiveSession @relation("SessionGifts", fields: [sessionId], references: [id])
+  sessionId     String
+
+  giftType      String
+  diamondCount  Int
+  createdAt     DateTime    @default(now())
 }
+

@@ -16,6 +16,7 @@ import { AnnouncementModule } from './announcement/announcement.module';
 import { OfferModule } from './offer/offer.module';
 import { UserModuleModule } from './user_module/user_module.module';
 
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -30,7 +31,8 @@ import { UserModuleModule } from './user_module/user_module.module';
     VipModule,
     AnnouncementModule,
     OfferModule,
-    UserModuleModule
+    UserModuleModule,
+
   ],
   controllers: [DashboardController],
 
