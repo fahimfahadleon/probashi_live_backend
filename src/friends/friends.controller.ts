@@ -7,7 +7,7 @@ import { CurrentUser } from 'src/auth/decorator/current-user.decorator';
 @UseGuards(JwtGuard)
 @Controller('friends')
 export class FriendsController {
-     
+
     constructor(private readonly friendsService: FriendsService) { }
     // Follow a user
     @Post('follow/:userId')
@@ -26,8 +26,8 @@ export class FriendsController {
         return this.friendsService.unfollowUser(user.id, userId);
     }
 
-    @Get('stats')
-    async getUserStats(@CurrentUser() user: { id: string }) {
-        return this.friendsService.getUserStats(user.id);
+    @Get('stats/:id')
+    async getUserStats(@Param('id') userId: string) {
+        return this.friendsService.getUserStats(userId);
     }
 }

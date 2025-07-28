@@ -15,6 +15,8 @@ import { VipModule } from './vip/vip.module';
 import { AnnouncementModule } from './announcement/announcement.module';
 import { OfferModule } from './offer/offer.module';
 import { UserModuleModule } from './user_module/user_module.module';
+import { MessageService } from './message/message.service';
+import { GiftsModule } from './gifts/gifts.module';
 
 
 @Module({
@@ -32,9 +34,11 @@ import { UserModuleModule } from './user_module/user_module.module';
     AnnouncementModule,
     OfferModule,
     UserModuleModule,
+    GiftsModule,
 
   ],
   controllers: [DashboardController],
+  providers: [MessageService],
 
 
 })

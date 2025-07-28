@@ -50,7 +50,21 @@ model User {
   friendedBy Friendship[] @relation("FriendedBy")
   payments  Payment[]
   paymentHistory  PaymentHistory[] 
+  sentMessages     Message[] @relation("SentMessages")
+  receivedMessages Message[] @relation("ReceivedMessages")
 }
+
+model Message {
+  id         String   @id @default(uuid())
+  senderId   String
+  receiverId String
+  content    String
+  createdAt  DateTime @default(now())
+
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id])
+  receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
+}
+
 model VIPDiamondPack {
   id        String    @id @default(cuid())
   price     Float
@@ -184,6 +198,21 @@ model LiveUser {
   role String @default("participant")
 
 }
+model LiveGift {
+  id            String      @id @default(cuid())
+
+  fromUser      LiveUser    @relation("GiftsSent", fields: [fromUserId], references: [id])
+  fromUserId    String
+
+  toUser        LiveUser    @relation("GiftsReceived", fields: [toUserId], references: [id])
+  toUserId      String
+
+  session       LiveSession @relation("SessionGifts", fields: [sessionId], references: [id])
+  sessionId     String
+
+  giftId        String
+  createdAt     DateTime    @default(now())
+}
 
 model LiveComment {
   id           String      @id @default(cuid())
@@ -198,20 +227,29 @@ model LiveComment {
   createdAt    DateTime    @default(now())
 }
 
-model LiveGift {
-  id            String      @id @default(cuid())
 
-  fromUser      LiveUser    @relation("GiftsSent", fields: [fromUserId], references: [id])
-  fromUserId    String
 
-  toUser        LiveUser    @relation("GiftsReceived", fields: [toUserId], references: [id])
-  toUserId      String
 
-  session       LiveSession @relation("SessionGifts", fields: [sessionId], references: [id])
-  sessionId     String
 
-  giftType      String
-  diamondCount  Int
-  createdAt     DateTime    @default(now())
+model GiftCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  gifts     Gift[]
+}
+
+model Gift {
+  id            String        @id @default(cuid())
+  name          String
+  imageUrl      String        // SVGA URL served by backend
+  thumbnailUrl  String        // Now required (not nullable)
+  price         Int
+  categoryId    String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  category      GiftCategory  @relation(fields: [categoryId], references: [id])
 }
 
