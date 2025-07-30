@@ -13,6 +13,7 @@ import { UnauthorizedException, UsePipes, ValidationPipe } from '@nestjs/common'
 import { PrismaService } from 'src/prisma/prisma.service';
 import { IsString, IsNotEmpty, IsOptional, IsNumber } from 'class-validator';
 
+
 // --- DTOs ---
 class SendGiftDto {
     @IsString()
@@ -26,6 +27,20 @@ class SendGiftDto {
     @IsString()
     @IsNotEmpty()
     giftId: string;
+}
+
+class InviteUserDto {
+    @IsString()
+    @IsNotEmpty()
+    fromUserId: string;
+
+    @IsString()
+    @IsNotEmpty()
+    toUserId: string;
+
+    @IsString()
+    @IsNotEmpty()
+    sessionId: string;
 }
 
 class SendCommentDto {
@@ -243,6 +258,153 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
             },
             include: { user: true },
         });
+    }
+
+
+
+
+
+
+
+    @SubscribeMessage('invite_to_join_live')
+    @UsePipes(new ValidationPipe({ transform: true }))
+    async handleInviteUser(
+        @ConnectedSocket() client: Socket,
+        @MessageBody() data: InviteUserDto,
+    ) {
+        const { fromUserId, toUserId, sessionId } = data;
+
+        // Check that both users are connected
+        const fromUser = this.activeUsers.get(fromUserId);
+        const toUser = this.activeUsers.get(toUserId);
+
+        if (!fromUser || !toUser) {
+            client.emit('error', { code: 'USER_NOT_CONNECTED', message: 'One of the users is not connected' });
+            return;
+        }
+
+        try {
+            // Optional: verify that inviter is in the session
+            const inviterLiveUser = await this.findLiveUserInSession(fromUserId, sessionId);
+            if (!inviterLiveUser) {
+                client.emit('error', { code: 'INVITER_NOT_IN_SESSION', message: 'You are not in the session' });
+                return;
+            }
+
+            // Send an invite to the receiver
+            toUser.socket.emit('live_invite', {
+                fromUserId,
+                toUserId,
+                sessionId,
+                message: `You have been invited to join a live session.`,
+            });
+        } catch (error) {
+            console.error('Error in handleInviteUser:', error);
+            client.emit('error', { code: 'INVITE_FAILED', message: 'Failed to send invite' });
+        }
+    }
+
+    @SubscribeMessage('invite_accepted')
+    async handleInviteAccepted(
+        @ConnectedSocket() client: Socket,
+        @MessageBody() data: { userId: string; sessionId: string },
+    ) {
+        const { userId, sessionId } = data;
+
+        // You can add validation or DB logic here if needed
+
+        // Notify the inviter or the session that invite was accepted
+        this.server.to(sessionId).emit('invite_accepted', {
+            userId,
+            sessionId,
+            message: `${userId} accepted the invite`,
+        });
+
+        console.log(`Invite accepted by ${userId} for session ${sessionId}`);
+    }
+
+
+
+
+
+    @SubscribeMessage('get_friends')
+    async handleGetFriends(@ConnectedSocket() client: Socket) {
+        try {
+            // Extract userId from activeUsers map by socket id
+            let userId: string | undefined;
+            for (const [uid, { socket }] of this.activeUsers.entries()) {
+                if (socket.id === client.id) {
+                    userId = uid;
+                    break;
+                }
+            }
+            if (!userId) {
+                client.emit('error', { code: 'NOT_AUTHENTICATED', message: 'User not authenticated' });
+                return;
+            }
+
+            // Step 1: Get IDs of users current user follows
+            const following = await this.prisma.follow.findMany({
+                where: { followerId: userId },
+                select: { followingId: true },
+            });
+            const followingIds = following.map(f => f.followingId);
+            if (followingIds.length === 0) {
+                client.emit('friends_list', []); // no friends
+                return;
+            }
+
+            // Step 2: Find users who follow back the current user (mutual)
+            const mutualFollows = await this.prisma.follow.findMany({
+                where: {
+                    followerId: { in: followingIds },
+                    followingId: userId,
+                },
+                select: {
+                    follower: {
+                        select: {
+                            id: true,
+                            name: true,
+                            profilePic: true,
+                            vipStatus: true,
+                            level: true,
+                        },
+                    },
+                },
+            });
+
+            // Step 3: Extract users
+            const friends = mutualFollows.map(m => m.follower);
+
+            // Emit the friend list to the client
+            client.emit('friends_list', friends);
+        } catch (error) {
+            console.error('Error in handleGetFriends:', error);
+            client.emit('error', { code: 'GET_FRIENDS_FAILED', message: 'Failed to get friends' });
+        }
+    }
+    @SubscribeMessage('invite_canceled')
+    async handleInviteCanceled(
+        @ConnectedSocket() client: Socket,
+        @MessageBody() data: { fromUserId: string; toUserId: string; sessionId: string },
+    ) {
+        const { fromUserId, toUserId, sessionId } = data;
+
+        // Validation or DB updates here if needed
+
+        // Notify the inviter or invitee about cancellation
+        this.server.to(sessionId).emit('invite_canceled', {
+            fromUserId,
+            toUserId,
+            sessionId,
+            message: `Invite from ${fromUserId} to ${toUserId} canceled`,
+        });
+
+
+        console.log(`Invite canceled from ${fromUserId} to ${toUserId} for session ${sessionId}`);
+
+
+
     }
 
     @SubscribeMessage('send_gift')
@@ -613,7 +775,7 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
             const userSocketData = this.activeUsers.get(userId);
             if (userSocketData) {
-                userSocketData.sessionId = null;
+                userSocketData.sessionId = undefined;
                 this.activeUsers.set(userId, userSocketData);
             }
 

@@ -19,6 +19,7 @@ import { MessageService } from './message/message.service';
 import { GiftsModule } from './gifts/gifts.module';
 
 
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -35,6 +36,7 @@ import { GiftsModule } from './gifts/gifts.module';
     OfferModule,
     UserModuleModule,
     GiftsModule,
+
 
   ],
   controllers: [DashboardController],
