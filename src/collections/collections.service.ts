@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from 'generated/prisma';
 import { PrismaService } from 'src/prisma/prisma.service';
 
@@ -27,8 +27,6 @@ export class CollectionsService {
             },
         });
 
-        console.log(JSON.stringify(v, null, 2)); // Pretty-print the actual data
-
         return v;
     }
 
@@ -41,25 +39,21 @@ export class CollectionsService {
         return this.prisma.collectionsCategory.create({ data: { name } });
     }
     async purchaseCollection(userId: string, type: string, name: string) {
-        // 1. Fetch user diamonds and settings
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
             select: { diamond: true, settings: true },
         });
         if (!user) throw new BadRequestException('User not found');
 
-        // 2. Fetch the collection item price (frame/bubble/entrance)
         const collectionItem = await this.prisma.collections.findUnique({
-            where: { name: name }, // Assuming name is unique as per your schema
+            where: { name },
         });
         if (!collectionItem) throw new BadRequestException('Collection item not found');
 
-        // 3. Check if user has enough diamonds
         if (user.diamond < collectionItem.price) {
             throw new BadRequestException('Not enough diamonds');
         }
 
-        // 4. Prepare settings update
         const settings: any = user.settings ?? {};
         if (!Array.isArray(settings[type])) {
             settings[type] = [];
@@ -68,18 +62,16 @@ export class CollectionsService {
             throw new BadRequestException(`You already own this ${type}`);
         }
 
-        // 5. Start transaction for atomicity
         return await this.prisma.$transaction(async (tx) => {
-            // Deduct diamonds from user
-            const updatedUser = await tx.user.update({
+            // 1. Deduct diamonds
+            await tx.user.update({
                 where: { id: userId },
                 data: {
                     diamond: { decrement: collectionItem.price },
-                    settings: settings,
                 },
             });
 
-            // Update settings JSON with new purchase
+            // 2. Update settings
             settings[type].push(name);
             await tx.user.update({
                 where: { id: userId },
@@ -88,23 +80,51 @@ export class CollectionsService {
                 },
             });
 
-            // Insert purchase history record
+            // 3. Log purchase history
             await tx.collectionPurchaseHistory.create({
                 data: {
-                    userId: userId,
-                    type: type,
-                    name: name,
+                    userId,
+                    type,
+                    name,
                     price: collectionItem.price,
                 },
             });
 
-            return {
-                message: `${type} '${name}' purchased successfully`,
-                diamondRemaining: updatedUser.diamond,
-                settings,
-            };
+            // ✅ 4. Return full updated user
+            return await tx.user.findUnique({
+                where: { id: userId },
+                include: {
+                    liveUsers: true,
+                    followedBy: true,
+                    following: true,
+                    friends: true,
+                    friendedBy: true,
+                    payments: true,
+                    paymentHistory: true,
+                    sentMessages: true,
+                    receivedMessages: true,
+                    collectionPurchaseHistory: true,
+                },
+            });
         });
     }
 
+
+
+    async getSvgaUrlByName(name: string) {
+        const collection = await this.prisma.collections.findUnique({
+            where: { name },
+            select: {
+                imageUrl: true,
+                thumbnailUrl: true, // optional, include if needed
+            },
+        });
+
+        if (!collection) {
+            throw new NotFoundException(`Collection "${name}" not found`);
+        }
+
+        return collection; // returns an object { imageUrl, thumbnailUrl }
+    }
 
 }

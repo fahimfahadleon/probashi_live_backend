@@ -71,8 +71,11 @@ export class CollectionsController {
     getAllByCategory() {
         return this.collectionsService.getAllCategoriesWithCollections();
     }
-
-
+    @UseGuards(JwtGuard)
+    @Post('by-name')
+    async getCollectionSvgaByName(@Body() body: { name: string }) {
+        return this.collectionsService.getSvgaUrlByName(body.name);
+    }
 
     @Post('category')
     @UseGuards(JwtAdminGuard)
