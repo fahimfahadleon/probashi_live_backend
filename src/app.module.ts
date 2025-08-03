@@ -17,6 +17,7 @@ import { OfferModule } from './offer/offer.module';
 import { UserModuleModule } from './user_module/user_module.module';
 import { MessageService } from './message/message.service';
 import { GiftsModule } from './gifts/gifts.module';
+import { CollectionsModule } from './collections/collections.module';
 
 
 
@@ -36,6 +37,7 @@ import { GiftsModule } from './gifts/gifts.module';
     OfferModule,
     UserModuleModule,
     GiftsModule,
+    CollectionsModule,
 
 
   ],

@@ -52,6 +52,7 @@ model User {
   paymentHistory  PaymentHistory[] 
   sentMessages     Message[] @relation("SentMessages")
   receivedMessages Message[] @relation("ReceivedMessages")
+  collectionPurchaseHistory  CollectionPurchaseHistory[]
 }
 
 model Message {
@@ -253,3 +254,38 @@ model Gift {
   category      GiftCategory  @relation(fields: [categoryId], references: [id])
 }
 
+model CollectionsCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  collections     Collections[]
+}
+
+model Collections {
+  id            String        @id @default(cuid())
+  name          String        @unique
+  imageUrl      String        // SVGA URL served by backend
+  thumbnailUrl  String        // Now required (not nullable)
+  price         Int
+  categoryId    String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  category      CollectionsCategory  @relation(fields: [categoryId], references: [id])
+}
+
+
+model CollectionPurchaseHistory {
+  id          String   @id @default(cuid())
+  userId      String
+  type        String   // 'frame', 'bubble', 'entrance', etc.
+  name        String   // name of the collection item purchased
+  price       Int      // price in diamonds
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}

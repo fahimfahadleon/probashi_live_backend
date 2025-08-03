@@ -34,7 +34,15 @@ export class GiftsService {
     }
 
     async createCategory(name: string) {
+
+
+
+        const exists = await this.prisma.giftCategory.findUnique({ where: { name } });
+        if (exists) throw new Error('Category already exists');
         return this.prisma.giftCategory.create({ data: { name } });
+
+
+
     }
 
 }

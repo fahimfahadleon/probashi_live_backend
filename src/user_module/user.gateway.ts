@@ -12,6 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import { UnauthorizedException, UsePipes, ValidationPipe } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { IsString, IsNotEmpty, IsOptional, IsNumber } from 'class-validator';
+import { subscribe } from 'diagnostics_channel';
 
 
 // --- DTOs ---
@@ -199,8 +200,17 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
                                             ? 'audience_left'
                                             : 'unknown_role_left';
 
+                                //todo ekhane somossa ase. null pay ekta value
+
                                 this.server.to(sessionId).emit(roleLeft, { userId });
                             }
+
+                            const updatedSession = await this.prisma.liveSession.findUnique({
+                                where: { id: sessionId },
+                                include: this.fullSessionInclude,
+                            });
+
+                            this.server.to(sessionId).emit('session_updated', updatedSession);
                         }
                     } catch (error) {
                         console.error('Error handling disconnect cleanup:', error);
@@ -307,14 +317,18 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @SubscribeMessage('invite_accepted')
     async handleInviteAccepted(
         @ConnectedSocket() client: Socket,
-        @MessageBody() data: { userId: string; sessionId: string },
+        @MessageBody() data: { fromUserId: string, userId: string; sessionId: string },
     ) {
-        const { userId, sessionId } = data;
-
+        const { fromUserId, userId, sessionId } = data;
+        const fromUser = this.activeUsers.get(fromUserId);
+        if (!fromUser) {
+            client.emit('error', { code: 'USER_NOT_CONNECTED', message: 'One of the users is not connected' });
+            return;
+        }
         // You can add validation or DB logic here if needed
 
         // Notify the inviter or the session that invite was accepted
-        this.server.to(sessionId).emit('invite_accepted', {
+        fromUser?.socket.emit('invite_accepted', {
             userId,
             sessionId,
             message: `${userId} accepted the invite`,
@@ -383,29 +397,35 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
             client.emit('error', { code: 'GET_FRIENDS_FAILED', message: 'Failed to get friends' });
         }
     }
-    @SubscribeMessage('invite_canceled')
-    async handleInviteCanceled(
+    @SubscribeMessage('invite_declined')
+    async handleInviteDeclined(
         @ConnectedSocket() client: Socket,
         @MessageBody() data: { fromUserId: string; toUserId: string; sessionId: string },
     ) {
         const { fromUserId, toUserId, sessionId } = data;
 
-        // Validation or DB updates here if needed
+        const inviter = this.activeUsers.get(fromUserId);
 
-        // Notify the inviter or invitee about cancellation
-        this.server.to(sessionId).emit('invite_canceled', {
+        if (!inviter) {
+            console.warn(`[invite_declined] Inviter (${fromUserId}) not connected.`);
+            client.emit('error', {
+                code: 'INVITER_NOT_CONNECTED',
+                message: 'The inviter is not currently connected.',
+            });
+            return;
+        }
+
+        // Notify only the host/inviter
+        inviter.socket.emit('invite_canceled', {
             fromUserId,
             toUserId,
             sessionId,
-            message: `Invite from ${fromUserId} to ${toUserId} canceled`,
+            message: `${toUserId} declined your invitation.`,
         });
 
-
-        console.log(`Invite canceled from ${fromUserId} to ${toUserId} for session ${sessionId}`);
-
-
-
+        console.log(`Invite declined: ${toUserId} declined invitation from ${fromUserId} in session ${sessionId}`);
     }
+
 
     @SubscribeMessage('send_gift')
     @UsePipes(new ValidationPipe({ transform: true }))
@@ -539,6 +559,258 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
     }
 
+    @SubscribeMessage('get_live_session_details')
+    async handleGetLiveSessionDetails(
+        @ConnectedSocket() client: Socket,
+        @MessageBody() data: { sessionId: string }
+    ) {
+        try {
+            const { sessionId } = data;
+
+            const liveSession = await this.prisma.liveSession.findUnique({
+                where: { id: sessionId },
+                include: this.fullSessionInclude,
+            });
+
+            if (!liveSession) {
+                client.emit('error', { message: 'Live session not found' });
+                return;
+            }
+
+            client.emit('live_session_details', liveSession);
+        } catch (error) {
+            console.error('Error fetching live session details:', error);
+            client.emit('error', { message: 'Could not fetch live session details' });
+        }
+    }
+
+
+
+    // @SubscribeMessage('join_session')
+    // async handleJoinSession(
+    //     @ConnectedSocket() client: Socket,
+    //     @MessageBody() data: { userId: string; sessionId: string },
+    // ) {
+    //     try {
+    //         const { userId, sessionId } = data;
+
+    //         client.join(sessionId);
+    //         console.log(`Socket ${client.id} joined room ${sessionId}`);
+
+    //         const existingLiveUser = await this.prisma.liveUser.findFirst({
+    //             where: {
+    //                 userId,
+    //                 participantSessionId: sessionId,
+    //                 leftAt: null,
+    //             },
+    //         });
+
+    //         if (existingLiveUser) {
+    //             await this.prisma.liveUser.update({
+    //                 where: { id: existingLiveUser.id },
+    //                 data: {
+    //                     leftAt: null,
+    //                     joinedAt: new Date(),
+    //                     isHost: false,
+    //                     role: 'participant',
+    //                 },
+    //             });
+    //         } else {
+    //             await this.prisma.liveUser.create({
+    //                 data: {
+    //                     userId,
+    //                     participantSessionId: sessionId,
+    //                     joinedAt: new Date(),
+    //                     isHost: false,
+    //                     role: 'participant',
+    //                 },
+    //             });
+    //         }
+
+    //         const userSocketData = this.activeUsers.get(userId);
+    //         if (userSocketData) {
+    //             userSocketData.sessionId = sessionId;
+    //             this.activeUsers.set(userId, userSocketData);
+    //         }
+
+    //         this.server.in(sessionId).emit('participant_joined', { userId, role: 'participant' });
+
+    //         const updatedSession = await this.prisma.liveSession.findUnique({
+    //             where: { id: sessionId },
+    //             include: this.fullSessionInclude,
+    //         });
+    //         this.server.in(sessionId).emit('session_updated', updatedSession);
+    //     } catch (error) {
+    //         console.error('Error in handleJoinSession:', error);
+    //     }
+    // }
+
+
+    @SubscribeMessage('send_comment')
+    @UsePipes(new ValidationPipe({ transform: true }))
+    async handleSendComment(
+        @ConnectedSocket() client: Socket,
+        @MessageBody() data: SendCommentDto,
+    ) {
+
+
+
+        console.log('Received send_comment:', data);
+
+        try {
+            const { userId, sessionId, message } = data;
+
+            if (!message.trim()) return;
+
+            // Use the helper for LiveUser lookup
+            const liveUser = await this.findLiveUserInSession(userId, sessionId);
+
+            if (!liveUser) {
+                console.warn(`[send_comment] No active LiveUser found for ${userId} in session ${sessionId}`);
+                return;
+            }
+
+            const comment = await this.prisma.liveComment.create({
+                data: {
+                    liveUserId: liveUser.id,
+                    message,
+                    sessionId,
+                },
+                include: {
+                    liveUser: { include: { user: true } },
+                },
+            });
+
+            this.server.in(sessionId).emit('new_comment', comment);
+            console.log(`[EMIT] new_comment to ${sessionId}:`, comment);
+        } catch (error) {
+            console.error('Error in handleSendComment:', error);
+        }
+    }
+
+    @SubscribeMessage('participant_left')
+    @UsePipes(new ValidationPipe({ transform: true }))
+    async handleParticipantLeft(
+        @ConnectedSocket() client: Socket,
+        @MessageBody() data: { userId: string; sessionId: string },
+    ) {
+        const { userId, sessionId } = data;
+
+        try {
+            const liveUser = await this.findLiveUserInSession(userId, sessionId);
+
+            if (!liveUser || liveUser.role !== 'participant') {
+                client.emit('error', {
+                    code: 'NOT_PARTICIPANT',
+                    message: 'User is not a participant in this session.',
+                });
+                return;
+            }
+
+            // 1. Mark as left in DB and fetch updated liveUser with user relation
+            const updatedLiveUser = await this.prisma.liveUser.update({
+                where: { id: liveUser.id },
+                data: {
+                    leftAt: new Date(),
+                    participantSessionId: null, // detach participant from session
+                },
+                include: { user: true },
+            });
+
+            // 2. Update activeUsers map
+            const userSocketData = this.activeUsers.get(userId);
+            if (userSocketData) {
+                userSocketData.sessionId = undefined;
+                this.activeUsers.set(userId, userSocketData);
+            }
+
+            // 3. Leave the socket room
+            client.leave(sessionId);
+
+
+
+            // 4. Emit `participant_left` with full liveUser info
+            this.server.to(sessionId).emit('participant_left', {
+                userId,
+                liveUser: updatedLiveUser,
+                message: 'A participant has left the session.',
+            }
+            );
+
+            // 5. Emit updated session
+            const updatedSession = await this.prisma.liveSession.findUnique({
+                where: { id: sessionId },
+                include: this.fullSessionInclude,
+            });
+
+            this.server.to(sessionId).emit('session_updated', updatedSession);
+
+            console.log(`Participant ${userId} left session ${sessionId}`);
+        } catch (error) {
+            console.error('Error in handleParticipantLeft:', error);
+            client.emit('error', { message: 'Failed to leave as participant.' });
+        }
+    }
+
+
+
+
+
+    @SubscribeMessage('participant_go_live')
+    async handleParticipantGoLive(
+        @ConnectedSocket() client: Socket,
+        @MessageBody() data: { userId: string; sessionId: string; rtmpUrl: string }
+    ) {
+        try {
+            const { userId, sessionId } = data;
+
+            const liveSession = await this.prisma.liveSession.findUnique({
+                where: { id: sessionId },
+            });
+
+            if (!liveSession) {
+                client.emit('error', { message: 'Live session not found' });
+                return;
+            }
+
+            const liveUser = await this.prisma.liveUser.create({
+                data: {
+                    userId,
+                    participantSessionId: sessionId,
+                    joinedAt: new Date(),
+                    isHost: false,
+                    role: 'participant',
+                },
+                include: {
+                    user: true,
+                },
+            });
+
+            client.join(sessionId);
+
+            const userData = this.activeUsers.get(userId);
+            if (userData) {
+                userData.sessionId = sessionId;
+                this.activeUsers.set(userId, userData);
+            }
+
+            this.server.to(sessionId).emit('participant_joined', liveUser);
+
+            const updatedSession = await this.prisma.liveSession.findUnique({
+                where: { id: sessionId },
+                include: this.fullSessionInclude, // Must include hosts, participants, etc.
+            });
+
+            this.server.to(sessionId).emit('session_updated', updatedSession);
+
+        } catch (error) {
+            console.error('Error in handleParticipantGoLive:', error);
+            client.emit('error', { message: 'Could not join live session as participant' });
+        }
+    }
+
+
+
     @SubscribeMessage('go_live')
     async handleGoLive(
         @ConnectedSocket() client: Socket,
@@ -580,64 +852,6 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
     }
 
-    @SubscribeMessage('join_session')
-    async handleJoinSession(
-        @ConnectedSocket() client: Socket,
-        @MessageBody() data: { userId: string; sessionId: string },
-    ) {
-        try {
-            const { userId, sessionId } = data;
-
-            client.join(sessionId);
-            console.log(`Socket ${client.id} joined room ${sessionId}`);
-
-            const existingLiveUser = await this.prisma.liveUser.findFirst({
-                where: {
-                    userId,
-                    participantSessionId: sessionId,
-                    leftAt: null,
-                },
-            });
-
-            if (existingLiveUser) {
-                await this.prisma.liveUser.update({
-                    where: { id: existingLiveUser.id },
-                    data: {
-                        leftAt: null,
-                        joinedAt: new Date(),
-                        isHost: false,
-                        role: 'participant',
-                    },
-                });
-            } else {
-                await this.prisma.liveUser.create({
-                    data: {
-                        userId,
-                        participantSessionId: sessionId,
-                        joinedAt: new Date(),
-                        isHost: false,
-                        role: 'participant',
-                    },
-                });
-            }
-
-            const userSocketData = this.activeUsers.get(userId);
-            if (userSocketData) {
-                userSocketData.sessionId = sessionId;
-                this.activeUsers.set(userId, userSocketData);
-            }
-
-            this.server.in(sessionId).emit('participant_joined', { userId, role: 'participant' });
-
-            const updatedSession = await this.prisma.liveSession.findUnique({
-                where: { id: sessionId },
-                include: this.fullSessionInclude,
-            });
-            this.server.in(sessionId).emit('session_updated', updatedSession);
-        } catch (error) {
-            console.error('Error in handleJoinSession:', error);
-        }
-    }
 
     @SubscribeMessage('join_audience')
     async handleJoinAudience(
@@ -697,42 +911,6 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
     }
 
-    @SubscribeMessage('send_comment')
-    @UsePipes(new ValidationPipe({ transform: true }))
-    async handleSendComment(
-        @ConnectedSocket() client: Socket,
-        @MessageBody() data: SendCommentDto,
-    ) {
-        try {
-            const { userId, sessionId, message } = data;
-
-            if (!message.trim()) return;
-
-            // Use the helper for LiveUser lookup
-            const liveUser = await this.findLiveUserInSession(userId, sessionId);
-
-            if (!liveUser) {
-                console.warn(`[send_comment] No active LiveUser found for ${userId} in session ${sessionId}`);
-                return;
-            }
-
-            const comment = await this.prisma.liveComment.create({
-                data: {
-                    liveUserId: liveUser.id,
-                    message,
-                    sessionId,
-                },
-                include: {
-                    liveUser: { include: { user: true } },
-                },
-            });
-
-            this.server.in(sessionId).emit('new_comment', comment);
-            console.log(`[EMIT] new_comment to ${sessionId}:`, comment);
-        } catch (error) {
-            console.error('Error in handleSendComment:', error);
-        }
-    }
 
     @SubscribeMessage('leave_live')
     @UsePipes(new ValidationPipe({ transform: true }))
