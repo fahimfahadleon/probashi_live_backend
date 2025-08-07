@@ -13,6 +13,7 @@ import { UnauthorizedException, UsePipes, ValidationPipe } from '@nestjs/common'
 import { PrismaService } from 'src/prisma/prisma.service';
 import { IsString, IsNotEmpty, IsOptional, IsNumber } from 'class-validator';
 import { subscribe } from 'diagnostics_channel';
+import { MessageService } from 'src/message/message.service';
 
 
 // --- DTOs ---
@@ -131,7 +132,7 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
         },
     };
 
-    constructor(private readonly jwtService: JwtService, private prisma: PrismaService) { }
+    constructor(private readonly jwtService: JwtService, private prisma: PrismaService,) { }
 
     async handleConnection(client: Socket) {
         try {
@@ -381,6 +382,7 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
                             name: true,
                             profilePic: true,
                             vipStatus: true,
+                            settings: true,
                             level: true,
                         },
                     },
@@ -389,6 +391,7 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
             // Step 3: Extract users
             const friends = mutualFollows.map(m => m.follower);
+
 
             // Emit the friend list to the client
             client.emit('friends_list', friends);
@@ -425,6 +428,142 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
         console.log(`Invite declined: ${toUserId} declined invitation from ${fromUserId} in session ${sessionId}`);
     }
+
+
+    async createMessage(senderId: string, receiverId: string, content: string) {
+        return this.prisma.message.create({
+            data: { senderId, receiverId, content },
+        });
+    }
+
+    async getChatHistory(userId: string, otherUserId: string) {
+        return this.prisma.message.findMany({
+            where: {
+                OR: [
+                    { senderId: userId, receiverId: otherUserId },
+                    { senderId: otherUserId, receiverId: userId },
+                ],
+            },
+            orderBy: { createdAt: 'asc' },
+        });
+    }
+
+
+
+
+
+    @SubscribeMessage('send_message')
+    async handleSendMessage(
+        @ConnectedSocket() client: Socket,
+        @MessageBody() dto: SendMessageDto,
+    ) {
+        const { senderId, receiverId, content } = dto;
+
+        const message = await this.createMessage(senderId, receiverId, content);
+
+        // Notify both users
+        const sender = this.activeUsers.get(senderId);
+        const receiver = this.activeUsers.get(receiverId);
+
+        if (receiver) {
+            receiver.socket.emit('new_message', message);
+        }
+
+        if (sender) {
+            sender.socket.emit('new_message', message);
+        }
+    }
+
+    @SubscribeMessage('get_chat_history')
+    async handleGetChatHistory(
+        @ConnectedSocket() client: Socket,
+        @MessageBody() dto: GetChatHistoryDto,
+    ) {
+        const { userId, otherUserId, page = 1, limit = 20 } = dto;
+
+        const [total, messages] = await this.prisma.$transaction([
+            this.prisma.message.count({
+                where: {
+                    OR: [
+                        { senderId: userId, receiverId: otherUserId },
+                        { senderId: otherUserId, receiverId: userId },
+                    ],
+                },
+            }),
+            this.prisma.message.findMany({
+                where: {
+                    OR: [
+                        { senderId: userId, receiverId: otherUserId },
+                        { senderId: otherUserId, receiverId: userId },
+                    ],
+                },
+                orderBy: { createdAt: 'asc' },
+                skip: (page - 1) * limit,
+                take: limit,
+            }),
+        ]);
+
+        client.emit('chat_history', {
+            userId,
+            otherUserId,
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit),
+            messages,
+        });
+    }
+
+
+
+    @SubscribeMessage('get_chat_inbox')
+    async handleGetChatInbox(
+        @ConnectedSocket() client: Socket,
+        @MessageBody() dto: { userId: string },
+    ) {
+        const userId = dto.userId;
+
+        // Get all messages where the user is either sender or receiver
+        const messages = await this.prisma.message.findMany({
+            where: {
+                OR: [{ senderId: userId }, { receiverId: userId }],
+            },
+            orderBy: {
+                createdAt: 'desc',
+            },
+        });
+
+        const chatMap = new Map<string, typeof messages[0]>();
+
+        // Group by conversation partner (latest message per chat)
+        for (const msg of messages) {
+            const partnerId = msg.senderId === userId ? msg.receiverId : msg.senderId;
+            if (!chatMap.has(partnerId)) {
+                chatMap.set(partnerId, msg); // Only store the latest
+            }
+        }
+
+        const inbox: ChatInboxEntry[] = [];
+
+        for (const [partnerId, msg] of chatMap.entries()) {
+            const otherUser = await this.prisma.user.findUnique({
+                where: { id: partnerId },
+            });
+
+            if (!otherUser) continue;
+
+            inbox.push({
+                user: otherUser,
+                latestMessage: msg.content,
+                messageId: msg.id,
+                createdAt: msg.createdAt,
+                isSender: msg.senderId === userId,
+            });
+        }
+
+        client.emit('chat_inbox', inbox);
+    }
+
 
 
     @SubscribeMessage('send_gift')
@@ -585,76 +724,12 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
 
-
-    // @SubscribeMessage('join_session')
-    // async handleJoinSession(
-    //     @ConnectedSocket() client: Socket,
-    //     @MessageBody() data: { userId: string; sessionId: string },
-    // ) {
-    //     try {
-    //         const { userId, sessionId } = data;
-
-    //         client.join(sessionId);
-    //         console.log(`Socket ${client.id} joined room ${sessionId}`);
-
-    //         const existingLiveUser = await this.prisma.liveUser.findFirst({
-    //             where: {
-    //                 userId,
-    //                 participantSessionId: sessionId,
-    //                 leftAt: null,
-    //             },
-    //         });
-
-    //         if (existingLiveUser) {
-    //             await this.prisma.liveUser.update({
-    //                 where: { id: existingLiveUser.id },
-    //                 data: {
-    //                     leftAt: null,
-    //                     joinedAt: new Date(),
-    //                     isHost: false,
-    //                     role: 'participant',
-    //                 },
-    //             });
-    //         } else {
-    //             await this.prisma.liveUser.create({
-    //                 data: {
-    //                     userId,
-    //                     participantSessionId: sessionId,
-    //                     joinedAt: new Date(),
-    //                     isHost: false,
-    //                     role: 'participant',
-    //                 },
-    //             });
-    //         }
-
-    //         const userSocketData = this.activeUsers.get(userId);
-    //         if (userSocketData) {
-    //             userSocketData.sessionId = sessionId;
-    //             this.activeUsers.set(userId, userSocketData);
-    //         }
-
-    //         this.server.in(sessionId).emit('participant_joined', { userId, role: 'participant' });
-
-    //         const updatedSession = await this.prisma.liveSession.findUnique({
-    //             where: { id: sessionId },
-    //             include: this.fullSessionInclude,
-    //         });
-    //         this.server.in(sessionId).emit('session_updated', updatedSession);
-    //     } catch (error) {
-    //         console.error('Error in handleJoinSession:', error);
-    //     }
-    // }
-
-
     @SubscribeMessage('send_comment')
     @UsePipes(new ValidationPipe({ transform: true }))
     async handleSendComment(
         @ConnectedSocket() client: Socket,
         @MessageBody() data: SendCommentDto,
     ) {
-
-
-
         console.log('Received send_comment:', data);
 
         try {
@@ -662,7 +737,6 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
             if (!message.trim()) return;
 
-            // Use the helper for LiveUser lookup
             const liveUser = await this.findLiveUserInSession(userId, sessionId);
 
             if (!liveUser) {
@@ -677,16 +751,38 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
                     sessionId,
                 },
                 include: {
-                    liveUser: { include: { user: true } },
+                    liveUser: {
+                        include: {
+                            user: true, // will be replaced
+                        },
+                    },
                 },
             });
 
+            // ✅ Get correct user info (nullable)
+            const actualUser = await this.prisma.user.findUnique({
+                where: { id: userId },
+            });
+
+            // ✅ Null check
+            if (!actualUser) {
+                console.warn(`[send_comment] User ${userId} not found`);
+                return;
+            }
+
+            // ✅ Override with correct user
+            if (comment.liveUser) {
+                comment.liveUser.user = actualUser;
+            }
+
             this.server.in(sessionId).emit('new_comment', comment);
             console.log(`[EMIT] new_comment to ${sessionId}:`, comment);
+
         } catch (error) {
             console.error('Error in handleSendComment:', error);
         }
     }
+
 
     @SubscribeMessage('participant_left')
     @UsePipes(new ValidationPipe({ transform: true }))
@@ -906,6 +1002,53 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
                 include: this.fullSessionInclude,
             });
             this.server.in(sessionId).emit('session_updated', updatedSession);
+
+            // ✅ Get correct user info (nullable)
+            const actualUser = await this.prisma.user.findUnique({
+                where: { id: userId },
+            });
+
+            // ✅ Null check
+            if (!actualUser) {
+                console.warn(`[send_comment] User ${userId} not found`);
+                return;
+            }
+
+
+            const liveUser = await this.findLiveUserInSession(userId, sessionId);
+
+            if (!liveUser) {
+                console.warn(`[send_comment] No active LiveUser found for ${userId} in session ${sessionId}`);
+                return;
+            }
+
+
+            const comment = await this.prisma.liveComment.create({
+                data: {
+                    liveUserId: liveUser.id,
+                    message: `${actualUser.name} has joined the Live.!@`,
+                    sessionId,
+                },
+                include: {
+                    liveUser: {
+                        include: {
+                            user: true, // will be replaced
+                        },
+                    },
+                },
+            });
+
+
+            // ✅ Override with correct user
+            if (comment.liveUser) {
+                comment.liveUser.user = actualUser;
+            }
+
+            this.server.in(sessionId).emit('new_comment', comment);
+
+
+
+
         } catch (error) {
             console.error('Error in handleJoinAudience:', error);
         }
@@ -962,4 +1105,13 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
             console.error('Error in handleLeaveLive:', error);
         }
     }
+
+}
+
+interface ChatInboxEntry {
+    user: any; // Or use a proper UserProfile interface if typed
+    latestMessage: string;
+    messageId: string;
+    createdAt: Date;
+    isSender: boolean;
 }

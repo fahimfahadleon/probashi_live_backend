@@ -71,14 +71,10 @@ export class ProfileService {
         };
     }
 
-
-
     async updateUserSettings(userId: string, newSettings: any) {
         return this.prisma.user.update({
             where: { id: userId },
             data: { settings: newSettings },
         });
     }
-
-
 }

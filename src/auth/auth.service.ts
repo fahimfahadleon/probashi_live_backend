@@ -143,7 +143,7 @@ export class AuthService {
 
         const token = this.jwtService.sign(tokenPayload, {
             secret: this.configService.get<string>('JWT_SECRET'),
-            expiresIn: '7d',
+            expiresIn: '365d',
         });
 
         // return {
@@ -205,7 +205,7 @@ export class AuthService {
             };
 
             const token = await this.jwtService.signAsync(tokenPayload, {
-                expiresIn: '10080m',
+                expiresIn: '365d',
                 secret: this.configService.get<string>('JWT_SECRET'),
             });
 
