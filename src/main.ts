@@ -8,7 +8,12 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.useGlobalPipes(new ValidationPipe());
-  app.enableCors({ origin: '*' });
+  app.enableCors({
+    origin: ['https://probashilive.xyz', 'https://www.probashilive.xyz'],
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    allowedHeaders: 'Content-Type, Authorization',
+    credentials: true,
+  });
 
 
   app.useStaticAssets(join(__dirname, '..', 'uploads'), {

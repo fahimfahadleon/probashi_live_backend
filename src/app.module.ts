@@ -6,7 +6,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ConfigModule } from '@nestjs/config';
 import { ProfileModule } from './profile/profile.module';
 import * as morgan from 'morgan';
-import { FriendsController } from './friends/friends.controller';
+
 import { FriendsModule } from './friends/friends.module';
 import { DashboardController } from './dashboard/dashboard.controller';
 import { DashboardModule } from './dashboard/dashboard.module';
@@ -18,6 +18,7 @@ import { UserModuleModule } from './user_module/user_module.module';
 import { MessageService } from './message/message.service';
 import { GiftsModule } from './gifts/gifts.module';
 import { CollectionsModule } from './collections/collections.module';
+import { SettingsModule } from './settings/settings.module';
 
 
 
@@ -38,6 +39,7 @@ import { CollectionsModule } from './collections/collections.module';
     UserModuleModule,
     GiftsModule,
     CollectionsModule,
+    SettingsModule
 
 
   ],

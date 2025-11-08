@@ -92,7 +92,7 @@ export class AuthService {
 
     async googleLogin(idToken: string) {
 
-        // this.createAdmin("fahimfahadleon6474@gmail.com", "64742812", "fahim fahad leon");
+        //this.createAdmin("fahimfahadleon6474@gmail.com", "64742812", "fahim fahad leon");
 
 
         // 1. Verify the Google ID token

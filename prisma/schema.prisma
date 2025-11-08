@@ -55,6 +55,13 @@ model User {
   collectionPurchaseHistory  CollectionPurchaseHistory[]
 }
 
+model Settings {
+  id           Int      @id @default(1) // always one row
+  profitMargin Float    @default(0)
+  gateways     Json     @default("[]")
+  appSettings  Json     @default("{\"maintenanceMode\": false, \"showAds\": true, \"forceUpdate\": false}")
+}
+
 model Message {
   id         String   @id @default(uuid())
   senderId   String

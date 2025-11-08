@@ -113,6 +113,27 @@ class GetChatInboxDto {
     },
 })
 export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
+    // Notify a user that their join request was accepted and they can join the live session
+    @SubscribeMessage('join_request_accepted')
+    async handleJoinRequestAccepted(
+        @ConnectedSocket() client: Socket,
+        @MessageBody()
+        data: { userId: string; sessionId: string; fromUser: string },
+    ) {
+        // Forward the original payload to the target user as-is.
+        const { userId } = data;
+        const targetUser = this.activeUsers.get(userId);
+        if (!targetUser) {
+            client.emit('error', { code: 'USER_NOT_CONNECTED', message: 'Target user is not connected' });
+            return;
+        }
+
+        // Ensure the client receives at least a message field if not provided
+
+        targetUser.socket.emit('join_request_accepted', data);
+
+        // Optional: log for server-side trace
+    }
     @WebSocketServer()
     server: Server;
 
@@ -945,6 +966,35 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
             client.emit('live_started', fullSession);
         } catch (error) {
             console.error('Error in handleGoLive:', error);
+        }
+    }
+
+    @SubscribeMessage('join_request')
+    async handleJoinRequest(
+        @MessageBody()
+        data: {
+            userId: string;
+            sessionId: string;
+            senderId: string;
+            receiverId: string;
+        },
+        @ConnectedSocket() client: Socket,
+    ) {
+        const { userId, senderId, receiverId } = data;
+        try {
+            const receiver = this.activeUsers.get(receiverId);
+            const actualUser = await this.prisma.user.findUnique({
+                where: { id: senderId },
+            });
+
+            if (!actualUser) {
+                return client.emit('error', { message: 'User not found' });
+            }
+
+            receiver?.socket.emit('audience_request_received', actualUser);
+        } catch (error) {
+            console.error('Error handling join_request:', error);
+            client.emit('error', { message: 'Internal server error' });
         }
     }
 
