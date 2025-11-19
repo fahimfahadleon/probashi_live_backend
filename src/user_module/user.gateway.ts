@@ -14,6 +14,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { IsString, IsNotEmpty, IsOptional, IsNumber } from 'class-validator';
 import { subscribe } from 'diagnostics_channel';
 import { MessageService } from 'src/message/message.service';
+import { ActiveUserService } from './active-user.service';
 
 
 // --- DTOs ---
@@ -113,6 +114,8 @@ class GetChatInboxDto {
     },
 })
 export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
+    constructor(private readonly jwtService: JwtService, private prisma: PrismaService, private activeUserService: ActiveUserService) { }
+
     // Notify a user that their join request was accepted and they can join the live session
     @SubscribeMessage('join_request_accepted')
     async handleJoinRequestAccepted(
@@ -153,7 +156,6 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
         },
     };
 
-    constructor(private readonly jwtService: JwtService, private prisma: PrismaService,) { }
 
     async handleConnection(client: Socket) {
         try {
@@ -173,6 +175,10 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
                 message: 'Welcome! Socket connection established.',
                 userId: payload.sub,
             });
+
+            const userId = client.id;
+            this.activeUserService.addUser(userId);
+
         } catch (err) {
             console.log('Socket connection error:', err.message);
             client.disconnect(true);
@@ -241,6 +247,9 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
                 break;
             }
         }
+
+        const userId = client.id;
+        this.activeUserService.removeUser(userId);
     }
 
     private async handleUserLeavingSession(userId: string, sessionId: string) {
@@ -363,64 +372,66 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 
 
-    @SubscribeMessage('get_friends')
-    async handleGetFriends(@ConnectedSocket() client: Socket) {
-        try {
-            // Extract userId from activeUsers map by socket id
-            let userId: string | undefined;
-            for (const [uid, { socket }] of this.activeUsers.entries()) {
-                if (socket.id === client.id) {
-                    userId = uid;
-                    break;
-                }
-            }
-            if (!userId) {
-                client.emit('error', { code: 'NOT_AUTHENTICATED', message: 'User not authenticated' });
-                return;
-            }
+    // @SubscribeMessage('get_friends')
+    // async handleGetFriends(@ConnectedSocket() client: Socket) {
+    //     try {
+    //         // Extract userId from activeUsers map by socket id
+    //         let userId: string | undefined;
+    //         for (const [uid, { socket }] of this.activeUsers.entries()) {
+    //             if (socket.id === client.id) {
+    //                 userId = uid;
+    //                 break;
+    //             }
+    //         }
+    //         if (!userId) {
+    //             client.emit('error', { code: 'NOT_AUTHENTICATED', message: 'User not authenticated' });
+    //             return;
+    //         }
 
-            // Step 1: Get IDs of users current user follows
-            const following = await this.prisma.follow.findMany({
-                where: { followerId: userId },
-                select: { followingId: true },
-            });
-            const followingIds = following.map(f => f.followingId);
-            if (followingIds.length === 0) {
-                client.emit('friends_list', []); // no friends
-                return;
-            }
+    //         // Step 1: Get IDs of users current user follows
+    //         const following = await this.prisma.follow.findMany({
+    //             where: { followerId: userId },
+    //             select: { followingId: true },
+    //         });
+    //         const followingIds = following.map(f => f.followingId);
+    //         if (followingIds.length === 0) {
+    //             client.emit('friends_list', []); // no friends
+    //             return;
+    //         }
 
-            // Step 2: Find users who follow back the current user (mutual)
-            const mutualFollows = await this.prisma.follow.findMany({
-                where: {
-                    followerId: { in: followingIds },
-                    followingId: userId,
-                },
-                select: {
-                    follower: {
-                        select: {
-                            id: true,
-                            name: true,
-                            profilePic: true,
-                            vipStatus: true,
-                            settings: true,
-                            level: true,
-                        },
-                    },
-                },
-            });
+    //         // Step 2: Find users who follow back the current user (mutual)
+    //         const mutualFollows = await this.prisma.follow.findMany({
+    //             where: {
+    //                 followerId: { in: followingIds },
+    //                 followingId: userId,
+    //             },
+    //             select: {
+    //                 follower: {
+    //                     select: {
+    //                         id: true,
+    //                         name: true,
+    //                         profilePic: true,
+    //                         vipStatus: true,
+    //                         settings: true,
+    //                         level: true,
+    //                     },
+    //                 },
+    //             },
+    //         });
 
-            // Step 3: Extract users
-            const friends = mutualFollows.map(m => m.follower);
+    //         // Step 3: Extract users
+    //         const friends = mutualFollows.map(m => m.follower);
 
 
-            // Emit the friend list to the client
-            client.emit('friends_list', friends);
-        } catch (error) {
-            console.error('Error in handleGetFriends:', error);
-            client.emit('error', { code: 'GET_FRIENDS_FAILED', message: 'Failed to get friends' });
-        }
-    }
+    //         // Emit the friend list to the client
+    //         client.emit('friends_list', friends);
+    //     } catch (error) {
+    //         console.error('Error in handleGetFriends:', error);
+    //         client.emit('error', { code: 'GET_FRIENDS_FAILED', message: 'Failed to get friends' });
+    //     }
+    // }
+
+
     @SubscribeMessage('invite_declined')
     async handleInviteDeclined(
         @ConnectedSocket() client: Socket,
@@ -1155,7 +1166,9 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
             console.error('Error in handleLeaveLive:', error);
         }
     }
-
+    getOnlineUserCount() {
+        return this.activeUsers.size;
+    }
 }
 
 interface ChatInboxEntry {

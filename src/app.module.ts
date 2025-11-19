@@ -13,12 +13,15 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { PaymentModule } from './payment/payment.module';
 import { VipModule } from './vip/vip.module';
 import { AnnouncementModule } from './announcement/announcement.module';
-import { OfferModule } from './offer/offer.module';
 import { UserModuleModule } from './user_module/user_module.module';
 import { MessageService } from './message/message.service';
 import { GiftsModule } from './gifts/gifts.module';
 import { CollectionsModule } from './collections/collections.module';
 import { SettingsModule } from './settings/settings.module';
+import { CoinSellerModule } from './coin-seller/coin-seller.module';
+import { CoinSellerController } from './coin-seller/coin-seller.controller';
+import { CoinSellerService } from './coin-seller/coin-seller.service';
+import { CoinSellerRequestModule } from './coin-seller-request/coin-seller-request.module';
 
 
 
@@ -35,16 +38,17 @@ import { SettingsModule } from './settings/settings.module';
     PaymentModule,
     VipModule,
     AnnouncementModule,
-    OfferModule,
     UserModuleModule,
     GiftsModule,
     CollectionsModule,
-    SettingsModule
+    SettingsModule,
+    CoinSellerModule,
+    CoinSellerRequestModule
 
 
   ],
-  controllers: [DashboardController],
-  providers: [MessageService],
+  controllers: [DashboardController, CoinSellerController],
+  providers: [MessageService, CoinSellerService],
 
 
 })

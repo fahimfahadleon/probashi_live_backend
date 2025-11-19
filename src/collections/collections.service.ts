@@ -39,21 +39,25 @@ export class CollectionsService {
         return this.prisma.collectionsCategory.create({ data: { name } });
     }
     async purchaseCollection(userId: string, type: string, name: string) {
+        // 1️⃣ Fetch user diamonds and settings
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
             select: { diamond: true, settings: true },
         });
         if (!user) throw new BadRequestException('User not found');
 
+        // 2️⃣ Fetch collection item
         const collectionItem = await this.prisma.collections.findUnique({
             where: { name },
         });
         if (!collectionItem) throw new BadRequestException('Collection item not found');
 
+        // 3️⃣ Check if user has enough diamonds
         if (user.diamond < collectionItem.price) {
             throw new BadRequestException('Not enough diamonds');
         }
 
+        // 4️⃣ Prepare settings
         const settings: any = user.settings ?? {};
         if (!Array.isArray(settings[type])) {
             settings[type] = [];
@@ -62,25 +66,22 @@ export class CollectionsService {
             throw new BadRequestException(`You already own this ${type}`);
         }
 
+        // 5️⃣ Transaction: deduct diamonds, update settings, log purchase
         return await this.prisma.$transaction(async (tx) => {
-            // 1. Deduct diamonds
+            // Deduct diamonds
             await tx.user.update({
                 where: { id: userId },
-                data: {
-                    diamond: { decrement: collectionItem.price },
-                },
+                data: { diamond: { decrement: collectionItem.price } },
             });
 
-            // 2. Update settings
+            // Update settings
             settings[type].push(name);
             await tx.user.update({
                 where: { id: userId },
-                data: {
-                    settings: settings,
-                },
+                data: { settings },
             });
 
-            // 3. Log purchase history
+            // Log purchase history
             await tx.collectionPurchaseHistory.create({
                 data: {
                     userId,
@@ -90,15 +91,13 @@ export class CollectionsService {
                 },
             });
 
-            // ✅ 4. Return full updated user
+            // Return updated user
             return await tx.user.findUnique({
                 where: { id: userId },
                 include: {
                     liveUsers: true,
-                    followedBy: true,
-                    following: true,
-                    friends: true,
-                    friendedBy: true,
+                    relationshipsFrom: true,
+                    relationshipsTo: true,
                     payments: true,
                     paymentHistory: true,
                     sentMessages: true,
@@ -108,6 +107,8 @@ export class CollectionsService {
             });
         });
     }
+
+
 
 
 

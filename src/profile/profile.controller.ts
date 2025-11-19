@@ -1,6 +1,6 @@
 import { Controller, Get, Param, UseGuards, Patch, Body } from '@nestjs/common';
 import { ProfileService } from './profile.service';
-import { JwtGuard } from 'src/guard';
+import { JwtAdminGuard, JwtGuard } from 'src/guard';
 import { CurrentUser } from 'src/auth/decorator/current-user.decorator';
 
 @Controller('profile')
@@ -23,6 +23,15 @@ export class ProfileController {
         return this.userProfile.getUserProfile(user.id, targetUserId);
     }
 
+
+    @UseGuards(JwtAdminGuard)
+    @Get('/user/:id')
+    async getUserProfile(
+        @Param('id') targetUserId: string,
+        @CurrentUser() user: { id: string }
+    ) {
+        return this.userProfile.getUserProfile(user.id, targetUserId);
+    }
 
     @UseGuards(JwtGuard)
     @Patch('settings')

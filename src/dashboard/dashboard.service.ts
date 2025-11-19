@@ -1,9 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { UserGateway } from 'src/user_module';
+import { ActiveUserService } from 'src/user_module/active-user.service';
 
 @Injectable()
 export class DashboardService {
-    constructor(private prisma: PrismaService) { }
+    constructor(private prisma: PrismaService, private activeUserService: ActiveUserService) { }
 
     async getDashboardStats() {
         const totalUser = await this.prisma.user.count();
@@ -19,17 +21,27 @@ export class DashboardService {
         const announcementCount = await this.prisma.announcement.count();
         const offerCount = await this.prisma.offer.count();
         const totalTopUps = await this.prisma.vIPDiamondPack.count(); // all top-ups without status filtering
+        const pendingCoinSellers = await this.prisma.coinSellerRequest.count({
+            where: { status: 'PENDING' },
+        });
+        const totalSellers = await this.prisma.coinSeller.count();
+        const pendingReports = await this.prisma.userReport.count({
+            where: { status: 'PENDING' },
+        });
 
         return {
             totalUser,
             liveUser: 0,
-            activeUser: 0,
+            activeUser: this.activeUserService.getOnlineUserCount(),
             vipUser: vipUserCount,
             revenue: {},
             post: 0,
             video: 0,
             report: 0,
-            totalTopUps,
+            totalTopUps: totalTopUps,
+            pendingReports: pendingReports,
+            pendingCoinSellers: pendingCoinSellers,
+            totalSellers: totalSellers,
             totalPaymentRequests,
             announcementCount,
             offerCount,

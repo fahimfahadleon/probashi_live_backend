@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { RelationshipType } from 'generated/prisma';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
@@ -8,9 +9,7 @@ export class ProfileService {
     }
 
     async getUserProfile(viewerId: string, targetUserId: string) {
-        console.log(viewerId);
-        console.log(targetUserId);
-
+        // 1️⃣ Fetch the target user
         const user = await this.prisma.user.findUnique({
             where: { id: targetUserId },
             select: {
@@ -22,10 +21,10 @@ export class ProfileService {
                 diamond: true,
                 level: true,
                 vipStatus: true,
-                isBlocked: true,
                 badge: true,
                 settings: true,
                 extra: true,
+                isBlocked: true,
                 createdAt: true,
                 updatedAt: true,
             },
@@ -33,29 +32,42 @@ export class ProfileService {
 
         if (!user) throw new NotFoundException('User not found');
 
-        const [followersCount, followingCount, friendsCount, isFollowing, isFriend] = await Promise.all([
-            this.prisma.follow.count({ where: { followingId: targetUserId } }),
-            this.prisma.follow.count({ where: { followerId: targetUserId } }),
-            this.prisma.friendship.count({ where: { userId: targetUserId } }),
-
-            this.prisma.follow.findUnique({
-                where: {
-                    followerId_followingId: {
-                        followerId: viewerId,
-                        followingId: targetUserId,
-                    },
-                },
-            }).then(Boolean),
-
-            this.prisma.friendship.findUnique({
-                where: {
-                    userId_friendId: {
-                        userId: viewerId,
-                        friendId: targetUserId,
-                    },
-                },
-            }).then(Boolean),
+        // 2️⃣ Fetch stats and relation
+        const [followersCount, followingCount, friendsCount, relation] = await Promise.all([
+            this.prisma.relationship.count({
+                where: { toUserId: targetUserId, type: RelationshipType.FOLLOW },
+            }),
+            this.prisma.relationship.count({
+                where: { fromUserId: targetUserId, type: RelationshipType.FOLLOW },
+            }),
+            this.prisma.relationship.count({
+                where: { type: RelationshipType.FRIEND, OR: [{ fromUserId: targetUserId }, { toUserId: targetUserId }] },
+            }),
+            this.prisma.relationship.findUnique({
+                where: { fromUserId_toUserId: { fromUserId: viewerId, toUserId: targetUserId } },
+            }),
         ]);
+
+        // Determine relation flags
+        let isFollowing = false;
+        let isFriend = false;
+
+        if (relation) {
+            if (relation.type === RelationshipType.FOLLOW) isFollowing = true;
+            if (relation.type === RelationshipType.FRIEND) {
+                isFollowing = true;
+                isFriend = true;
+            }
+        } else {
+            // Check reverse FRIEND (viewer was followed first)
+            const reverse = await this.prisma.relationship.findUnique({
+                where: { fromUserId_toUserId: { fromUserId: targetUserId, toUserId: viewerId } },
+            });
+            if (reverse?.type === RelationshipType.FRIEND) {
+                isFollowing = true;
+                isFriend = true;
+            }
+        }
 
         return {
             ...user,

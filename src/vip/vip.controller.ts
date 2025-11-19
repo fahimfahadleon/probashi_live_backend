@@ -1,26 +1,46 @@
 import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
-import { VipService } from './vip.service';
+
 import { CreateVIPDiamondDto } from './dto/create-vip-diamond.dto';
 import { JwtAdminGuard } from 'src/guard';
+import { CreateOfferDto } from './dto/create-offer.dto';
+import { VipService } from './vip.service';
+
 
 @Controller('vip')
 export class VipController {
     constructor(private readonly vipService: VipService) { }
 
+    // VIP Diamond Packs
     @UseGuards(JwtAdminGuard)
     @Post('diamond-pack')
-    create(@Body() dto: CreateVIPDiamondDto) {
-        return this.vipService.createDiamondPack(dto);
+    createVipPack(@Body() dto: CreateVIPDiamondDto) {
+        return this.vipService.createVipPack(dto);
     }
 
-
     @Get('diamond-pack')
-    findAll() {
-        return this.vipService.findAllDiamondPacks();
+    findAllVipPacks() {
+        return this.vipService.findAllVipPacks();
     }
 
     @Delete('diamond-pack/:id')
-    delete(@Param('id') id: string) {
-        return this.vipService.deleteDiamondPack(id);
+    deleteVipPack(@Param('id') id: string) {
+        return this.vipService.deleteVipPack(id);
+    }
+
+    // Offers
+    @UseGuards(JwtAdminGuard)
+    @Post('offer')
+    createOffer(@Body() dto: CreateOfferDto) {
+        return this.vipService.createOffer(dto);
+    }
+
+    @Get('offer')
+    findAllOffers() {
+        return this.vipService.findAllOffers();
+    }
+
+    @Delete('offer/:id')
+    deleteOffer(@Param('id') id: string) {
+        return this.vipService.deleteOffer(id);
     }
 }

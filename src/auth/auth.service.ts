@@ -8,7 +8,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 // auth.service.ts
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { OAuth2Client } from 'google-auth-library';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
@@ -116,6 +116,10 @@ export class AuthService {
         let user = await this.prisma.user.findUnique({
             where: { id: googleId },
         });
+
+        if (user?.isBlocked) {
+            throw new ForbiddenException('Your account has been blocked.');
+        }
 
         // 3. If not, create user
         if (!user) {

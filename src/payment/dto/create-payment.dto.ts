@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsEnum } from 'class-validator';
 
 export class CreatePaymentDto {
     @IsString()
@@ -9,12 +9,15 @@ export class CreatePaymentDto {
     @IsNotEmpty()
     method: string;
 
-
     @IsString()
     @IsNotEmpty()
-    itemId: string;
+    productId: string;  // matches your Payment.productId foreign key
 
-    @IsString()
     @IsOptional()
+    @IsString()
+    vIPDiamondPackId?: string;  // optional if the product type is VIP_PACK
+
+    @IsOptional()
+    @IsString()
     description?: string;
 }

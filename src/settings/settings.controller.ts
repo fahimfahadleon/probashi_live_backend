@@ -9,7 +9,7 @@ import { JwtAdminGuard, JwtGuard } from 'src/guard';
 export class SettingsController {
     constructor(private readonly settingsService: SettingsService) { }
 
-    @UseGuards(JwtGuard)
+
     @Get('get-settings')
     getSettings() {
         return this.settingsService.getSettings();
