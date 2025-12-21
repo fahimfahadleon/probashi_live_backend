@@ -2,6 +2,7 @@ import { Controller, Get, Param, UseGuards, Patch, Body } from '@nestjs/common';
 import { ProfileService } from './profile.service';
 import { JwtAdminGuard, JwtGuard } from 'src/guard';
 import { CurrentUser } from 'src/auth/decorator/current-user.decorator';
+import { UpdateUserDto } from './dto/update.user.dto';
 
 @Controller('profile')
 export class ProfileController {
@@ -31,6 +32,12 @@ export class ProfileController {
         @CurrentUser() user: { id: string }
     ) {
         return this.userProfile.getUserProfile(user.id, targetUserId);
+    }
+
+    @UseGuards(JwtAdminGuard)
+    @Patch(':id')
+    updateUser(@Param('id') id: string, @Body() dto: UpdateUserDto) {
+        return this.userProfile.update(id, dto);
     }
 
     @UseGuards(JwtGuard)

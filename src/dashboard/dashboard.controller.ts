@@ -16,8 +16,6 @@ export class DashboardController {
         return this.dashboardService.getDashboardStats();
     }
 
-
-
     @Get('users')
     async getUsers(
         @Query() query: GetUsersDto

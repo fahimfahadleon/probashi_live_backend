@@ -185,6 +185,12 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
     }
 
+
+
+
+
+
+
     async handleDisconnect(client: Socket) {
         for (const [userId, { socket, sessionId }] of this.activeUsers.entries()) {
             if (socket.id === client.id) {
@@ -194,8 +200,17 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
                 if (sessionId) {
                     try {
                         const liveUser = await this.prisma.liveUser.findFirst({
-                            where: { userId, leftAt: null },
+                            where: {
+                                userId,
+                                leftAt: null,
+                                OR: [
+                                    { hostSessionId: sessionId },
+                                    { participantSessionId: sessionId },
+                                    { audienceSessionId: sessionId },
+                                ],
+                            },
                         });
+
 
                         if (liveUser) {
                             const isHost = liveUser.isHost;
@@ -303,6 +318,83 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 
 
+@SubscribeMessage('leave_audience')
+@UsePipes(new ValidationPipe({ transform: true }))
+async handleLeaveAudience(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { userId: string; sessionId: string },
+) {
+    try {
+        const { userId, sessionId } = data;
+
+        // 1. Find active audience LiveUser
+        const liveUser = await this.prisma.liveUser.findFirst({
+            where: {
+                userId,
+                audienceSessionId: sessionId,
+                role: 'audience',
+                leftAt: null,
+            },
+            include: { user: true },
+        });
+
+        if (!liveUser) {
+            console.warn(`[leave_audience] No active audience found for ${userId}`);
+            client.leave(sessionId);
+            return;
+        }
+
+        // 2. Mark audience as left
+        await this.prisma.liveUser.update({
+            where: { id: liveUser.id },
+            data: {
+                leftAt: new Date(),
+                audienceSessionId: null,
+            },
+        });
+
+        // 3. Leave socket room
+        client.leave(sessionId);
+
+        // 4. Update activeUsers map
+        const userSocketData = this.activeUsers.get(userId);
+        if (userSocketData) {
+            userSocketData.sessionId = undefined;
+            this.activeUsers.set(userId, userSocketData);
+        }
+
+        // 5. Emit audience_left
+        this.server.to(sessionId).emit('audience_left', {
+            userId,
+            liveUser,
+            message: 'Audience left the session',
+        });
+
+        // 6. Emit updated session
+        const updatedSession = await this.prisma.liveSession.findUnique({
+            where: { id: sessionId },
+            include: this.fullSessionInclude,
+        });
+
+        this.server.to(sessionId).emit('session_updated', updatedSession);
+
+        // 7. Optional system comment
+        await this.prisma.liveComment.create({
+            data: {
+                liveUserId: liveUser.id,
+                sessionId,
+                message: `${liveUser.user.name} left the live.`,
+            },
+        });
+
+    } catch (error) {
+        console.error('Error in handleLeaveAudience:', error);
+        client.emit('error', {
+            code: 'LEAVE_AUDIENCE_FAILED',
+            message: 'Failed to leave audience',
+        });
+    }
+}
 
 
 
@@ -598,6 +690,64 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 
 
+    @SubscribeMessage('kick_audience')
+    @UsePipes(new ValidationPipe({ transform: true }))
+    async handleKickParticipant(@ConnectedSocket() client: Socket, @MessageBody() data: { userId: string; sessionId: string }) {
+        const { userId, sessionId } = data;
+        const toUser = this.activeUsers.get(userId);
+        if (!toUser) {
+            client.emit('error', { code: 'USER_NOT_CONNECTED', message: 'User is not connected' });
+            return;
+        }
+        try {
+            toUser.socket.emit('kicked_from_session', { 'sessionId': sessionId, message: 'You have been kicked from the session.' });
+        } catch (error) {
+            console.error('Error in handleKickParticipant:', error);
+            client.emit('error', { code: 'KICK_FAILED', message: 'Failed to kick participant' });
+        }
+
+    }
+
+
+
+    @SubscribeMessage('mute_audience')
+    @UsePipes(new ValidationPipe({ transform: true }))
+    async handleMuteParticipant(@ConnectedSocket() client: Socket, @MessageBody() data: { userId: string; sessionId: string }) {
+        const { userId, sessionId } = data;
+        const toUser = this.activeUsers.get(userId);
+        if (!toUser) {
+            client.emit('error', { code: 'USER_NOT_CONNECTED', message: 'User is not connected' });
+            return;
+        }
+        try {
+            toUser.socket.emit('muted_from_session', { 'sessionId': sessionId, message: 'You have been muted from the session.' });
+        } catch (error) {
+            console.error('Error in handleMUteParticipant:', error);
+            client.emit('error', { code: 'MUTE_FAILED', message: 'Failed to Mute participant' });
+        }
+
+    }
+
+    @SubscribeMessage('unmute_audience')
+    @UsePipes(new ValidationPipe({ transform: true }))
+    async handleUnMuteParticipant(@ConnectedSocket() client: Socket, @MessageBody() data: { userId: string; sessionId: string }) {
+        const { userId, sessionId } = data;
+        const toUser = this.activeUsers.get(userId);
+        if (!toUser) {
+            client.emit('error', { code: 'USER_NOT_CONNECTED', message: 'User is not connected' });
+            return;
+        }
+        try {
+            toUser.socket.emit('unmuted_audience', { 'sessionId': sessionId, message: 'You have been Unmuted by host.' });
+        } catch (error) {
+            console.error('Error in handleUnMUteParticipant:', error);
+            client.emit('error', { code: 'UNMUTE_FAILED', message: 'Failed to UnMute Audience' });
+        }
+
+    }
+
+
+
     @SubscribeMessage('send_gift')
     @UsePipes(new ValidationPipe({ transform: true }))
     async handleSendGift(
@@ -656,31 +806,38 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
             // 4. Run transaction: verify diamonds, deduct, add, create gift
             await this.prisma.$transaction(async (prisma) => {
-                // Reload users inside transaction
                 const fromUser = await prisma.user.findUnique({ where: { id: fromLiveUser.user.id } });
                 const toUser = await prisma.user.findUnique({ where: { id: toLiveUser.user.id } });
 
                 if (!fromUser || !toUser) {
-                    console.error('[send_gift] Users not found in transaction', { fromUserId: fromLiveUser.user.id, toUserId: toLiveUser.user.id });
                     throw new Error('Users not found');
                 }
 
-                if (fromUser.diamond < gift.price) {
-                    console.warn('[send_gift] Insufficient diamonds', { fromUserId: fromUser.id, diamond: fromUser.diamond, price: gift.price });
+                const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+                const profitMargin = settings?.profitMargin ?? 0;
+
+                const price = gift.price;
+                const platformCut = Math.floor((price * profitMargin) / 100);
+                const receiverAmount = price - platformCut;
+
+                if (fromUser.diamond < price) {
                     throw new Error('Insufficient diamonds');
                 }
 
-                // Deduct diamonds from sender
+                // Deduct full from sender
                 await prisma.user.update({
                     where: { id: fromUser.id },
-                    data: { diamond: { decrement: gift.price } },
+                    data: { diamond: { decrement: price } },
                 });
 
-                // Add diamonds to receiver
+                // Credit only the % amount to the receiver
                 await prisma.user.update({
                     where: { id: toUser.id },
-                    data: { diamond: { increment: gift.price } },
+                    data: { diamond: { increment: receiverAmount } },
                 });
+
+                // Save platform earnings for transparency
+
 
                 // Create the liveGift record
                 await prisma.liveGift.create({
@@ -692,6 +849,7 @@ export class UserGateway implements OnGatewayConnection, OnGatewayDisconnect {
                     },
                 });
             });
+
 
             // 5. Emit to session (send gift info including fromUser and toUser details)
             this.server.to(sessionId).emit('gift_received', {

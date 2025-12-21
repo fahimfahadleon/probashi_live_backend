@@ -1,11 +1,19 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { RelationshipType } from 'generated/prisma';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { UpdateUserDto } from './dto/update.user.dto';
 
 @Injectable()
 export class ProfileService {
     constructor(private prisma: PrismaService) {
 
+    }
+
+    update(id: string, dto: UpdateUserDto) {
+        return this.prisma.user.update({
+            where: { id },
+            data: dto,
+        });
     }
 
     async getUserProfile(viewerId: string, targetUserId: string) {
